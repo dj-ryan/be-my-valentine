@@ -1,7 +1,8 @@
 const PROXIMITY_RADIUS = 105;
+const MIN_POINTER_CLEARANCE = 86;
 const EDGE_PADDING = 16;
 const MOVE_COOLDOWN_MS = 260;
-const MAX_TRIES = 10;
+const MAX_TRIES = 18;
 const BOUNCE_STEP = 92;
 const JITTER_RANGE = 18;
 const ROAM_RADIUS_X = 170;
@@ -99,6 +100,16 @@ function centerToRect(centerX, centerY) {
   };
 }
 
+function isValidCandidate(centerX, centerY, pointerX, pointerY, yesRect) {
+  const candidateRect = centerToRect(centerX, centerY);
+  if (rectsOverlap(candidateRect, yesRect)) {
+    return false;
+  }
+
+  const pointerDistance = Math.hypot(centerX - pointerX, centerY - pointerY);
+  return pointerDistance >= MIN_POINTER_CLEARANCE;
+}
+
 function moveNoButtonAway(pointerX, pointerY) {
   const now = performance.now();
   if (now - lastMoveTimestamp < MOVE_COOLDOWN_MS) {
@@ -126,10 +137,33 @@ function moveNoButtonAway(pointerX, pointerY) {
     const nextCenterX = clamp(currentCenter.x + nx * BOUNCE_STEP + jitterX, bounds.minX, bounds.maxX);
     const nextCenterY = clamp(currentCenter.y + ny * BOUNCE_STEP + jitterY, bounds.minY, bounds.maxY);
 
-    const candidateRect = centerToRect(nextCenterX, nextCenterY);
-    if (!rectsOverlap(candidateRect, yesRect)) {
+    if (isValidCandidate(nextCenterX, nextCenterY, pointerX, pointerY, yesRect)) {
       chosenCenter = { x: nextCenterX, y: nextCenterY };
       break;
+    }
+  }
+
+  if (!chosenCenter) {
+    let farthestDistance = -1;
+
+    for (let i = 0; i < MAX_TRIES * 2; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const radiusX = 38 + Math.random() * ROAM_RADIUS_X;
+      const radiusY = 28 + Math.random() * ROAM_RADIUS_Y;
+
+      const orbitX = clamp(startCenter.x + Math.cos(angle) * radiusX, bounds.minX, bounds.maxX);
+      const orbitY = clamp(startCenter.y + Math.sin(angle) * radiusY, bounds.minY, bounds.maxY);
+
+      const candidateRect = centerToRect(orbitX, orbitY);
+      if (rectsOverlap(candidateRect, yesRect)) {
+        continue;
+      }
+
+      const pointerDistance = Math.hypot(orbitX - pointerX, orbitY - pointerY);
+      if (pointerDistance > farthestDistance) {
+        farthestDistance = pointerDistance;
+        chosenCenter = { x: orbitX, y: orbitY };
+      }
     }
   }
 
