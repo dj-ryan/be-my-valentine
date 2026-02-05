@@ -61,6 +61,7 @@ function normalizeNoButtonPositioning() {
   noButton.style.position = "fixed";
   noButton.style.left = `${rect.left}px`;
   noButton.style.top = `${rect.top}px`;
+  noButton.style.zIndex = "3";
 
   document.body.appendChild(noButton);
   hasMovedToAbsolute = true;
