@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Be My Valentine, Audrey</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700&family=Pacifico&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="floating-hearts" aria-hidden="true">
+      <span>❤</span>
+      <span>❤</span>
+      <span>❤</span>
+      <span>❤</span>
+      <span>❤</span>
+      <span>❤</span>
+    </div>
+
+    <main class="card" id="card" role="main" aria-live="polite">
+      <p class="heart-row" aria-hidden="true">💖 💗 💖</p>
+      <h1 id="title">Audrey, will you be my Valentine?</h1>
+      <p class="subtitle" id="subtitle">(There is only one correct answer.)</p>
+
+      <div class="button-area" id="button-area">
+        <button class="btn btn-yes" id="yes-btn" type="button">Yes</button>
+        <button class="btn btn-no" id="no-btn" type="button">No</button>
+      </div>
+
+      <div class="success-message" id="success-message" hidden>
+        <h2>I love you, Audrey ❤️</h2>
+        <p>Happy Valentine&apos;s Day!</p>
+      </div>
+    </main>
+
+    <div id="confetti-layer" aria-hidden="true"></div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
