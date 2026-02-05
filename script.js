@@ -3,10 +3,8 @@ const MIN_POINTER_CLEARANCE = 86;
 const EDGE_PADDING = 16;
 const MOVE_COOLDOWN_MS = 260;
 const MAX_TRIES = 18;
-const BOUNCE_STEP = 92;
-const JITTER_RANGE = 18;
-const ROAM_RADIUS_X = 170;
-const ROAM_RADIUS_Y = 120;
+const ORBIT_RADIUS = 150;
+const OVERLAP_ESCAPE_STEP = Math.PI / 12;
 
 const yesButton = document.getElementById("yes-btn");
 const noButton = document.getElementById("no-btn");
@@ -63,6 +61,8 @@ function normalizeNoButtonPositioning() {
   noButton.style.position = "fixed";
   noButton.style.left = `${rect.left}px`;
   noButton.style.top = `${rect.top}px`;
+
+  document.body.appendChild(noButton);
   hasMovedToAbsolute = true;
 }
 
@@ -75,17 +75,22 @@ function getAllowedCenterBounds() {
   const viewportMinY = EDGE_PADDING + halfH;
   const viewportMaxY = window.innerHeight - EDGE_PADDING - halfH;
 
-  const roamMinX = startCenter.x - ROAM_RADIUS_X;
-  const roamMaxX = startCenter.x + ROAM_RADIUS_X;
-  const roamMinY = startCenter.y - ROAM_RADIUS_Y;
-  const roamMaxY = startCenter.y + ROAM_RADIUS_Y;
-
   return {
-    minX: Math.max(viewportMinX, roamMinX),
-    maxX: Math.min(viewportMaxX, roamMaxX),
-    minY: Math.max(viewportMinY, roamMinY),
-    maxY: Math.min(viewportMaxY, roamMaxY),
+    minX: viewportMinX,
+    maxX: viewportMaxX,
+    minY: viewportMinY,
+    maxY: viewportMaxY,
   };
+}
+
+function getOrbitRadius(bounds) {
+  const maxLeft = startCenter.x - bounds.minX;
+  const maxRight = bounds.maxX - startCenter.x;
+  const maxUp = startCenter.y - bounds.minY;
+  const maxDown = bounds.maxY - startCenter.y;
+  const maxSafeRadius = Math.max(0, Math.min(maxLeft, maxRight, maxUp, maxDown));
+
+  return Math.min(ORBIT_RADIUS, maxSafeRadius);
 }
 
 function centerToRect(centerX, centerY) {
@@ -119,63 +124,47 @@ function moveNoButtonAway(pointerX, pointerY) {
   normalizeNoButtonPositioning();
 
   const yesRect = yesButton.getBoundingClientRect();
-  const currentCenter = getNoCenter();
   const bounds = getAllowedCenterBounds();
+  const orbitRadius = getOrbitRadius(bounds);
 
-  const dx = currentCenter.x - pointerX;
-  const dy = currentCenter.y - pointerY;
-  const magnitude = Math.hypot(dx, dy) || 1;
-  const nx = dx / magnitude;
-  const ny = dy / magnitude;
+  if (orbitRadius <= 0) {
+    return;
+  }
+
+  const fromStartToPointerX = pointerX - startCenter.x;
+  const fromStartToPointerY = pointerY - startCenter.y;
+  const pointerMagnitude = Math.hypot(fromStartToPointerX, fromStartToPointerY) || 1;
+
+  const awayUnitX = -fromStartToPointerX / pointerMagnitude;
+  const awayUnitY = -fromStartToPointerY / pointerMagnitude;
+
+  const baseAngle = Math.atan2(awayUnitY, awayUnitX);
 
   let chosenCenter = null;
 
-  for (let i = 0; i < MAX_TRIES; i += 1) {
-    const jitterX = (Math.random() * 2 - 1) * JITTER_RANGE;
-    const jitterY = (Math.random() * 2 - 1) * JITTER_RANGE;
+  for (let i = 0; i <= MAX_TRIES; i += 1) {
+    const direction = i % 2 === 0 ? 1 : -1;
+    const step = Math.ceil(i / 2);
+    const angle = baseAngle + direction * step * OVERLAP_ESCAPE_STEP;
+    const orbitX = startCenter.x + Math.cos(angle) * orbitRadius;
+    const orbitY = startCenter.y + Math.sin(angle) * orbitRadius;
 
-    const nextCenterX = clamp(currentCenter.x + nx * BOUNCE_STEP + jitterX, bounds.minX, bounds.maxX);
-    const nextCenterY = clamp(currentCenter.y + ny * BOUNCE_STEP + jitterY, bounds.minY, bounds.maxY);
-
-    if (isValidCandidate(nextCenterX, nextCenterY, pointerX, pointerY, yesRect)) {
-      chosenCenter = { x: nextCenterX, y: nextCenterY };
+    if (isValidCandidate(orbitX, orbitY, pointerX, pointerY, yesRect)) {
+      chosenCenter = { x: orbitX, y: orbitY };
       break;
     }
   }
 
   if (!chosenCenter) {
-    let farthestDistance = -1;
-
-    for (let i = 0; i < MAX_TRIES * 2; i += 1) {
-      const angle = Math.random() * Math.PI * 2;
-      const radiusX = 38 + Math.random() * ROAM_RADIUS_X;
-      const radiusY = 28 + Math.random() * ROAM_RADIUS_Y;
-
-      const orbitX = clamp(startCenter.x + Math.cos(angle) * radiusX, bounds.minX, bounds.maxX);
-      const orbitY = clamp(startCenter.y + Math.sin(angle) * radiusY, bounds.minY, bounds.maxY);
-
-      const candidateRect = centerToRect(orbitX, orbitY);
-      if (rectsOverlap(candidateRect, yesRect)) {
-        continue;
-      }
-
-      const pointerDistance = Math.hypot(orbitX - pointerX, orbitY - pointerY);
-      if (pointerDistance > farthestDistance) {
-        farthestDistance = pointerDistance;
-        chosenCenter = { x: orbitX, y: orbitY };
-      }
-    }
-  }
-
-  if (!chosenCenter) {
-    const fallbackCenterX = clamp(currentCenter.x - nx * (BOUNCE_STEP * 0.55), bounds.minX, bounds.maxX);
-    const fallbackCenterY = clamp(currentCenter.y - ny * (BOUNCE_STEP * 0.55), bounds.minY, bounds.maxY);
-    chosenCenter = { x: fallbackCenterX, y: fallbackCenterY };
+    chosenCenter = { x: startCenter.x, y: startCenter.y };
   }
 
   const nextRect = centerToRect(chosenCenter.x, chosenCenter.y);
-  noButton.style.left = `${nextRect.left}px`;
-  noButton.style.top = `${nextRect.top}px`;
+  const clampedLeft = clamp(nextRect.left, EDGE_PADDING, window.innerWidth - EDGE_PADDING - startSize.width);
+  const clampedTop = clamp(nextRect.top, EDGE_PADDING, window.innerHeight - EDGE_PADDING - startSize.height);
+
+  noButton.style.left = `${clampedLeft}px`;
+  noButton.style.top = `${clampedTop}px`;
   lastMoveTimestamp = now;
 }
 
