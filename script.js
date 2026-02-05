@@ -1,7 +1,11 @@
-const PROXIMITY_RADIUS = 100;
+const PROXIMITY_RADIUS = 105;
 const EDGE_PADDING = 16;
-const MOVE_COOLDOWN_MS = 280;
-const MAX_TRIES = 45;
+const MOVE_COOLDOWN_MS = 260;
+const MAX_TRIES = 10;
+const BOUNCE_STEP = 92;
+const JITTER_RANGE = 18;
+const ROAM_RADIUS_X = 170;
+const ROAM_RADIUS_Y = 120;
 
 const yesButton = document.getElementById("yes-btn");
 const noButton = document.getElementById("no-btn");
@@ -11,6 +15,12 @@ const confettiLayer = document.getElementById("confetti-layer");
 
 let lastMoveTimestamp = 0;
 let hasMovedToAbsolute = false;
+let startCenter = null;
+let startSize = null;
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
 
 function rectsOverlap(rectA, rectB) {
   return !(
@@ -21,8 +31,12 @@ function rectsOverlap(rectA, rectB) {
   );
 }
 
+function getNoRect() {
+  return noButton.getBoundingClientRect();
+}
+
 function getNoCenter() {
-  const rect = noButton.getBoundingClientRect();
+  const rect = getNoRect();
   return {
     x: rect.left + rect.width / 2,
     y: rect.top + rect.height / 2,
@@ -34,11 +48,55 @@ function normalizeNoButtonPositioning() {
     return;
   }
 
-  const rect = noButton.getBoundingClientRect();
+  const rect = getNoRect();
+  startCenter = {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  };
+  startSize = {
+    width: rect.width,
+    height: rect.height,
+  };
+
   noButton.style.transform = "none";
+  noButton.style.position = "fixed";
   noButton.style.left = `${rect.left}px`;
   noButton.style.top = `${rect.top}px`;
   hasMovedToAbsolute = true;
+}
+
+function getAllowedCenterBounds() {
+  const halfW = startSize.width / 2;
+  const halfH = startSize.height / 2;
+
+  const viewportMinX = EDGE_PADDING + halfW;
+  const viewportMaxX = window.innerWidth - EDGE_PADDING - halfW;
+  const viewportMinY = EDGE_PADDING + halfH;
+  const viewportMaxY = window.innerHeight - EDGE_PADDING - halfH;
+
+  const roamMinX = startCenter.x - ROAM_RADIUS_X;
+  const roamMaxX = startCenter.x + ROAM_RADIUS_X;
+  const roamMinY = startCenter.y - ROAM_RADIUS_Y;
+  const roamMaxY = startCenter.y + ROAM_RADIUS_Y;
+
+  return {
+    minX: Math.max(viewportMinX, roamMinX),
+    maxX: Math.min(viewportMaxX, roamMaxX),
+    minY: Math.max(viewportMinY, roamMinY),
+    maxY: Math.min(viewportMaxY, roamMaxY),
+  };
+}
+
+function centerToRect(centerX, centerY) {
+  const halfW = startSize.width / 2;
+  const halfH = startSize.height / 2;
+
+  return {
+    left: centerX - halfW,
+    top: centerY - halfH,
+    right: centerX + halfW,
+    bottom: centerY + halfH,
+  };
 }
 
 function moveNoButtonAway(pointerX, pointerY) {
@@ -49,50 +107,42 @@ function moveNoButtonAway(pointerX, pointerY) {
 
   normalizeNoButtonPositioning();
 
-  const noRect = noButton.getBoundingClientRect();
   const yesRect = yesButton.getBoundingClientRect();
+  const currentCenter = getNoCenter();
+  const bounds = getAllowedCenterBounds();
 
-  const maxX = window.innerWidth - noRect.width - EDGE_PADDING;
-  const maxY = window.innerHeight - noRect.height - EDGE_PADDING;
+  const dx = currentCenter.x - pointerX;
+  const dy = currentCenter.y - pointerY;
+  const magnitude = Math.hypot(dx, dy) || 1;
+  const nx = dx / magnitude;
+  const ny = dy / magnitude;
 
-  let chosenX = null;
-  let chosenY = null;
+  let chosenCenter = null;
 
   for (let i = 0; i < MAX_TRIES; i += 1) {
-    const candidateX =
-      EDGE_PADDING + Math.random() * Math.max(1, maxX - EDGE_PADDING);
-    const candidateY =
-      EDGE_PADDING + Math.random() * Math.max(1, maxY - EDGE_PADDING);
+    const jitterX = (Math.random() * 2 - 1) * JITTER_RANGE;
+    const jitterY = (Math.random() * 2 - 1) * JITTER_RANGE;
 
-    const candidateRect = {
-      left: candidateX,
-      top: candidateY,
-      right: candidateX + noRect.width,
-      bottom: candidateY + noRect.height,
-    };
+    const nextCenterX = clamp(currentCenter.x + nx * BOUNCE_STEP + jitterX, bounds.minX, bounds.maxX);
+    const nextCenterY = clamp(currentCenter.y + ny * BOUNCE_STEP + jitterY, bounds.minY, bounds.maxY);
 
-    const centerX = candidateX + noRect.width / 2;
-    const centerY = candidateY + noRect.height / 2;
-    const distance = Math.hypot(centerX - pointerX, centerY - pointerY);
-
-    if (rectsOverlap(candidateRect, yesRect)) {
-      continue;
+    const candidateRect = centerToRect(nextCenterX, nextCenterY);
+    if (!rectsOverlap(candidateRect, yesRect)) {
+      chosenCenter = { x: nextCenterX, y: nextCenterY };
+      break;
     }
-
-    if (distance < PROXIMITY_RADIUS * 1.2) {
-      continue;
-    }
-
-    chosenX = candidateX;
-    chosenY = candidateY;
-    break;
   }
 
-  if (chosenX !== null && chosenY !== null) {
-    noButton.style.left = `${chosenX}px`;
-    noButton.style.top = `${chosenY}px`;
-    lastMoveTimestamp = now;
+  if (!chosenCenter) {
+    const fallbackCenterX = clamp(currentCenter.x - nx * (BOUNCE_STEP * 0.55), bounds.minX, bounds.maxX);
+    const fallbackCenterY = clamp(currentCenter.y - ny * (BOUNCE_STEP * 0.55), bounds.minY, bounds.maxY);
+    chosenCenter = { x: fallbackCenterX, y: fallbackCenterY };
   }
+
+  const nextRect = centerToRect(chosenCenter.x, chosenCenter.y);
+  noButton.style.left = `${nextRect.left}px`;
+  noButton.style.top = `${nextRect.top}px`;
+  lastMoveTimestamp = now;
 }
 
 function handlePointerProximity(clientX, clientY) {
@@ -181,13 +231,12 @@ window.addEventListener("resize", () => {
     return;
   }
 
-  const noRect = noButton.getBoundingClientRect();
-  const maxX = window.innerWidth - noRect.width - EDGE_PADDING;
-  const maxY = window.innerHeight - noRect.height - EDGE_PADDING;
+  const center = getNoCenter();
+  const bounds = getAllowedCenterBounds();
+  const clampedCenterX = clamp(center.x, bounds.minX, bounds.maxX);
+  const clampedCenterY = clamp(center.y, bounds.minY, bounds.maxY);
+  const rect = centerToRect(clampedCenterX, clampedCenterY);
 
-  const clampedX = Math.min(Math.max(noRect.left, EDGE_PADDING), maxX);
-  const clampedY = Math.min(Math.max(noRect.top, EDGE_PADDING), maxY);
-
-  noButton.style.left = `${clampedX}px`;
-  noButton.style.top = `${clampedY}px`;
+  noButton.style.left = `${rect.left}px`;
+  noButton.style.top = `${rect.top}px`;
 });
